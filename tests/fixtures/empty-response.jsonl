@@ -1,0 +1,2 @@
+{"type": "assistant", "timestamp": "t0", "message": {"role": "assistant", "model": "k3", "content": []}}
+{"type": "system", "subtype": "turn_duration", "durationMs": 1000}

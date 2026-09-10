@@ -1,0 +1,2 @@
+{"type": "assistant", "timestamp": "t0", "message": {"role": "assistant", "model": "<synthetic>", "stop_reason": "stop_sequence", "content": [{"type": "text", "text": "Please run /login · API Error: 403 来自上游渠道的报错"}]}}
+{"type": "system", "subtype": "turn_duration", "durationMs": 12}

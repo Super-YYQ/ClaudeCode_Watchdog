@@ -1,0 +1,5 @@
+{"type": "assistant", "timestamp": "t0", "message": {"role": "assistant", "model": "k3", "stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "Bash", "id": "1"}]}}
+{"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "1", "content": "ok"}]}}
+{"type": "assistant", "timestamp": "t1", "message": {"role": "assistant", "model": "moonshotai/kimi-k3", "content": []}}
+{"type": "assistant", "timestamp": "t2", "message": {"role": "assistant", "model": "moonshotai/kimi-k3", "content": []}}
+{"type": "system", "subtype": "turn_duration", "durationMs": 30}
