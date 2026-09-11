@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ccs-watchdog"
 version = "0.1.0"
-description = "Windows-native Claude Code session watchdog for silent interruptions and empty responses."
+description = "Windows-native ClaudeCode watchdog for silent interruptions and empty responses."
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}

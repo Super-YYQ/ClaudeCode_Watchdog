@@ -1,4 +1,4 @@
-# Claude Code Session Watchdog
+# ClaudeCode Watchdog
 
 Windows 原生 Claude Code 会话守护工具（V0.1）。
 
@@ -21,7 +21,7 @@ Windows 原生 Claude Code 会话守护工具（V0.1）。
 ## 安装
 
 ```powershell
-cd Claude_Code_Session_Watchdog
+cd ClaudeCode_Watchdog
 python -m pip install -e ".[dev]"
 ```
 

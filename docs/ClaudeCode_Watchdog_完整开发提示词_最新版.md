@@ -1,4 +1,4 @@
-# Claude Code Session Watchdog V0.1 — 完整调研、诊断与开发提示词（含 ccSwitch 路由/模型切换专项）
+# ClaudeCode Watchdog V0.1 — 完整调研、诊断与开发提示词（含 ccSwitch 路由/模型切换专项）
 
 > 适用场景：Windows + PowerShell + Claude Code CLI + ccSwitch + 第三方公益站/中转 API。  
 > 目标：让**发生过异常的当前 Claude Code 会话自己取证、分析，并直接实现一个 Windows 原生会话守护工具**，解决 API/流式中断、空响应、Tool use interrupted、以及“没有明显报错却突然 done”的静默异常，并专项分析 ccSwitch 本地路由、provider/model 热切换和协议转换是否参与触发故障。
@@ -1093,7 +1093,7 @@ Modification
 
 ---
 
-## 12. 设计 Windows 原生 Claude Code Session Watchdog
+## 12. 设计 Windows 原生 ClaudeCode Watchdog
 
 主要环境：
 
@@ -1110,7 +1110,7 @@ Modification
 
 工具暂定名：
 
-`Claude Code Session Watchdog`
+`ClaudeCode Watchdog`
 
 核心职责：监控一个或多个 Claude Code session，识别异常结束，并在安全条件满足时恢复。
 
