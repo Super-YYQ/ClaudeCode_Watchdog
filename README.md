@@ -25,17 +25,30 @@ cd ClaudeCode_Watchdog
 python -m pip install -e ".[dev]"
 ```
 
-## 命令
+## 快速开始
 
 ```powershell
-ccs-watchdog doctor
-ccs-watchdog status
-ccs-watchdog replay tests/fixtures/unfinished-text-then-done.jsonl
-ccs-watchdog watch --dry-run --once
-ccs-watchdog watch --session <id-or-path>
+ccs-watchdog doctor    # 体检：能否找到会话目录与 ccSwitch 路由
+ccs-watchdog status    # 查看当前目录最近的 session
+ccs-watchdog replay tests/fixtures/unfinished-text-then-done.jsonl   # 离线复盘
+ccs-watchdog watch     # 实时守护当前项目的会话（另开终端）
 ```
 
+完整步骤、字段含义、评分解释、配置项与踩坑清单见 **[docs/USAGE.md](docs/USAGE.md)**。
+
+## 命令
+
+| 命令 | 作用 |
+|---|---|
+| `ccs-watchdog doctor` | 体检环境与 ccSwitch 路由 |
+| `ccs-watchdog status` | 查看当前目录最近的 session |
+| `ccs-watchdog replay <session.jsonl>` | 离线复盘一份 transcript |
+| `ccs-watchdog watch [--session <id>] [--once] [--from-start] [--log-dir <dir>]` | 实时守护 |
+| `ccs-watchdog stop` | 占位命令（V0.1 无 daemon，`Ctrl+C` 即可） |
+
 `--auto-resume` 目前只打印建议 resume prompt，**不会**用 SendKeys 往前台窗口打字。
+
+默认日志落在当前目录 `.ccs-watchdog/`（`events.jsonl` + `watchdog.log`）。
 
 ## 测试
 
