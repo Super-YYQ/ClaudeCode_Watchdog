@@ -18,6 +18,11 @@ CLASS_SIDE_EFFECT = "SIDE_EFFECT_UNKNOWN"
 CLASS_ROUTE_SWITCH = "ROUTE_SWITCH_SUSPECTED"
 CLASS_UNKNOWN = "UNKNOWN"
 
+#: Below this a verdict is not worth printing, logging, or acting on. Shared by
+#: ``watch`` (default ``--min-score``), ``replay``, and the hook runner so the
+#: "ignore / record / notify / act" tiers stay consistent.
+RECORD_THRESHOLD = 30
+
 
 @dataclass
 class Verdict:

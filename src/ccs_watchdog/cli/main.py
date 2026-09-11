@@ -11,15 +11,21 @@ from ccs_watchdog.config.defaults import WatchdogConfig, load_config
 from ccs_watchdog.discovery.sessions import AmbiguousSession, discover_sessions, pick_session
 from ccs_watchdog.doctor.checks import doctor_report
 from ccs_watchdog.events.normalize import normalize_record
+from ccs_watchdog.hooks.installer import InstallError, default_python, install_hook, uninstall_hook
+from ccs_watchdog.hooks.output import silent_output
+from ccs_watchdog.hooks.payload import parse_hook_input
+from ccs_watchdog.hooks.runner import handle_hook
 from ccs_watchdog.logging.writer import EventLog
 from ccs_watchdog.provider.ccswitch import read_route_snapshot
 from ccs_watchdog.replay.engine import format_verdicts, replay_path
 from ccs_watchdog.resume.controller import CircuitBreaker, resume_prompt
-from ccs_watchdog.scoring.score import score_event
+from ccs_watchdog.scoring.score import RECORD_THRESHOLD, score_event
 from ccs_watchdog.state.machine import SessionStateMachine
 from ccs_watchdog.transcript.reader import IncrementalJsonlReader
 
-SUBCOMMANDS = ("watch", "replay", "status", "doctor", "last", "stop")
+SUBCOMMANDS = ("watch", "replay", "status", "doctor", "last", "stop", "hook", "install-hook", "uninstall-hook")
+
+HOOK_CLI_EVENTS = ("stop", "subagentstop", "stopfailure")
 
 
 def _cfg(args) -> WatchdogConfig:
@@ -142,7 +148,7 @@ def cmd_watch(args) -> int:
     breaker = CircuitBreaker(max_failures=cfg.max_auto_resumes)
     log_dir = Path(args.log_dir) if args.log_dir else (cfg.log_dir or Path.cwd() / ".ccs-watchdog")
     log = EventLog(log_dir)
-    min_score = args.min_score if args.min_score is not None else 30
+    min_score = args.min_score if args.min_score is not None else RECORD_THRESHOLD
     last_emit = None
     while True:
         records = reader.read_new()
@@ -166,6 +172,89 @@ def cmd_watch(args) -> int:
         if args.once:
             break
         time.sleep(0.5)
+    return 0
+
+
+def _read_stdin_json():
+    """Decode the hook payload; ``None`` for empty/garbage stdin."""
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        return None
+    if not raw or not raw.strip():
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+def cmd_hook(args) -> int:
+    """Entry point Claude Code calls at a turn boundary.
+
+    Contract: always exit 0, always print exactly one JSON object. Anything that
+    goes wrong downgrades to "stay silent" -- never to "stall the user's turn".
+    """
+    output = silent_output()
+    try:
+        cfg = _cfg(args)
+        output = handle_hook(parse_hook_input(_read_stdin_json()), cfg).output
+    except Exception:
+        output = silent_output()
+    print(json.dumps(output, ensure_ascii=False))
+    return 0
+
+
+def _settings_path(args, cfg: WatchdogConfig) -> Path:
+    return Path(args.settings) if getattr(args, "settings", None) else cfg.claude_home / "settings.json"
+
+
+def cmd_install_hook(args) -> int:
+    cfg = _cfg(args)
+    path = _settings_path(args, cfg)
+    config_path = getattr(args, "config", None)
+    try:
+        result = install_hook(
+            path,
+            events=list(cfg.hook_events),
+            python=args.python or default_python(),
+            config_path=config_path,
+        )
+    except InstallError as exc:
+        print(f"安装失败：{exc}")
+        return 2
+    if not result.changed:
+        print(f"已经装过了，未做改动：{path}")
+        return 0
+    print(f"已写入 {path}")
+    if result.backup_path:
+        print(f"原文件已备份：{result.backup_path}")
+    print(f"已注册事件：{', '.join(result.installed)}")
+    if config_path:
+        print(f"已把配置路径写进 hook 命令：{config_path}")
+    else:
+        print("未指定 --config：hook 将使用默认配置（resume_on_stop=false，只记录并提示）")
+    print("重启 Claude Code 后生效；之后新开的窗口/会话同样生效，不需要再单独启动 watch。")
+    if not cfg.resume_on_stop:
+        print("当前 resume_on_stop=false：只记录并提示，不会拦停回合。")
+    print("卸载：ccw uninstall-hook（只删本工具写入的条目，其它 hook 不动）")
+    return 0
+
+
+def cmd_uninstall_hook(args) -> int:
+    cfg = _cfg(args)
+    path = _settings_path(args, cfg)
+    try:
+        result = uninstall_hook(path)
+    except InstallError as exc:
+        print(f"卸载失败：{exc}")
+        return 2
+    if not result.changed:
+        print(f"没有安装记录，未做改动：{path}")
+        return 0
+    print(f"已从 {path} 移除：{', '.join(result.removed)}")
+    if result.backup_path:
+        print(f"原文件已备份：{result.backup_path}")
     return 0
 
 
@@ -220,6 +309,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_stop = sub.add_parser("stop")
     add_config(p_stop)
     p_stop.set_defaults(func=lambda args: print("no daemon pid file; stop the watch process") or 0)
+
+    p_hook = sub.add_parser("hook", help="给 Claude Code 的 Stop hook 调用（内部用）")
+    add_config(p_hook)
+    p_hook.add_argument("event", choices=HOOK_CLI_EVENTS, help="触发的事件名")
+    p_hook.set_defaults(func=cmd_hook)
+
+    for name, func, help_text in (
+        ("install-hook", cmd_install_hook, "把本工具注册进 ~/.claude/settings.json（可选）"),
+        ("uninstall-hook", cmd_uninstall_hook, "移除本工具写入的 hook 条目"),
+    ):
+        p = sub.add_parser(name, help=help_text)
+        add_config(p)
+        p.add_argument("--settings", default=None, help="settings.json 路径（默认 ~/.claude/settings.json）")
+        p.add_argument("--python", default=None, help="注册用的 python 解释器（默认当前解释器）")
+        p.set_defaults(func=func)
     return parser
 
 

@@ -17,6 +17,19 @@ WAITING_HINTS = (
     "needs your permission", "waiting for", "elicitation",
 )
 
+# Text prefixes Claude Code injects as ``type=user`` turns that are NOT the
+# human speaking: Stop-hook feedback, the session-scoped-hook notice, local
+# command echoes, and the skill preamble. Matched only when the record isn't
+# already a tool_result. See tests/unit/test_injection.py for the real shapes.
+INJECTED_TEXT_MARKERS = (
+    "Stop hook feedback:",
+    "A session-scoped Stop hook is now active",
+    "<local-command-caveat>",
+    "<command-name>",
+    "The following skills were invoked",
+    "[Your previous response",
+)
+
 SIDE_EFFECT_TOOLS = {
     "Edit", "Write", "NotebookEdit", "Bash", "SendMessage",
     "mcp__github__create_issue", "mcp__github__create_pull_request",
@@ -45,6 +58,7 @@ class NormalizedEvent:
     empty_assistant: bool = False
     thinking_only: bool = False
     future_action: bool = False
+    injected: bool = False
     message_id: str | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -77,6 +91,39 @@ def _blocks(content) -> tuple[list[str], str, list[str], list[str]]:
 def looks_like_future_action(text: str) -> bool:
     lowered = (text or "").casefold()
     return any(hint in lowered for hint in FUTURE_HINTS)
+
+
+# Kinds that mean "the model itself produced this turn"; used both to find the
+# last real assistant turn and to skip injected/meta noise after it.
+ASSISTANT_KINDS = frozenset({"ASSISTANT_TEXT", "ASSISTANT_EMPTY", "TOOL_USE_STARTED", "API_ERROR"})
+
+
+def is_injected(record: dict[str, Any], text: str, is_tool_result: bool) -> bool:
+    """True when a turn was written *by the tooling*, not typed by the human.
+
+    Covers Stop-hook feedback, compaction summaries, and other meta turns. A
+    genuine tool_result is never injected -- it is a real part of the loop.
+    """
+    if record.get("isMeta") or record.get("isCompactSummary") or record.get("isVisibleInTranscriptOnly"):
+        return True
+    if is_tool_result:
+        return False
+    stripped = (text or "").lstrip()
+    return any(stripped.startswith(marker) for marker in INJECTED_TEXT_MARKERS)
+
+
+def last_real_assistant(events: list["NormalizedEvent"]) -> "NormalizedEvent | None":
+    """Most recent assistant turn that the model actually produced.
+
+    Skips injected/meta turns so the hook path anchors on the last thing Claude
+    really said, not on hook-authored feedback appended after it.
+    """
+    for event in reversed(events):
+        if event.injected:
+            continue
+        if event.kind in ASSISTANT_KINDS:
+            return event
+    return None
 
 
 def normalize_record(record: dict[str, Any]) -> NormalizedEvent:
@@ -135,6 +182,11 @@ def normalize_record(record: dict[str, Any]) -> NormalizedEvent:
         if kind in {"ASSISTANT_TEXT", "ASSISTANT_EMPTY"}:
             kind = "API_ERROR"
 
+    is_tool_result = kind == "TOOL_RESULT"
+    injected = is_injected(record, text, is_tool_result)
+    if injected:
+        kind = "META"
+
     return NormalizedEvent(
         kind=kind,
         raw_type=raw_type,
@@ -152,7 +204,8 @@ def normalize_record(record: dict[str, Any]) -> NormalizedEvent:
         subtype=record.get("subtype"),
         empty_assistant=empty,
         thinking_only=thinking_only,
-        future_action=looks_like_future_action(text),
+        future_action=False if injected else looks_like_future_action(text),
+        injected=injected,
         message_id=msg.get("id"),
         extras={"cwd": record.get("cwd"), "version": record.get("version")},
     )

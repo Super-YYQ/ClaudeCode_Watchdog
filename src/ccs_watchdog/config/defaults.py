@@ -21,13 +21,18 @@ class WatchdogConfig:
     ccswitch_home: Path = field(default_factory=lambda: Path.home() / ".cc-switch")
     redact_secrets: bool = True
     log_dir: Path | None = None
+    # --- hook channel (opt-in; see hooks/installer.py) ---
+    resume_on_stop: bool = False
+    max_blocks_per_session: int = 2
+    hook_events: list[str] = field(default_factory=lambda: ["Stop", "SubagentStop"])
+    hook_log_dir: Path | None = None
 
     @property
     def projects_dir(self) -> Path:
         return self.claude_home / "projects"
 
 
-PATH_FIELDS = frozenset({"claude_home", "ccswitch_home", "log_dir"})
+PATH_FIELDS = frozenset({"claude_home", "ccswitch_home", "log_dir", "hook_log_dir"})
 FIELD_NAMES = tuple(f.name for f in fields(WatchdogConfig))
 
 
