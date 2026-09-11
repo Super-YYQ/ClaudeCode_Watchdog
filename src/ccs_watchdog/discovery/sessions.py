@@ -20,25 +20,45 @@ class AmbiguousSession(Exception):
 
 
 def encode_cwd(cwd: Path) -> str:
-    text = str(cwd.resolve())
-    for ch in ":\/":
-        text = text.replace(ch, "-")
-    return text
+    """Turn a working directory into Claude Code's project folder name.
+
+    Claude Code replaces *every* character that is not ASCII alphanumeric or
+    ``-`` with ``-`` -- so ``:`` and ``\\`` become ``-``, and so do CJK
+    characters, dots, spaces and underscores. The parametrised test in
+    ``tests/unit/test_discovery.py`` pins each of those character classes.
+    """
+    text = str(Path(cwd).resolve())
+    return "".join(ch if (ch.isascii() and (ch.isalnum() or ch == "-")) else "-" for ch in text)
 
 
-def discover_sessions(projects_dir: Path, cwd: Path | None = None) -> list[SessionHit]:
+def discover_sessions(
+    projects_dir: Path,
+    cwd: Path | None = None,
+    project: str | None = None,
+) -> list[SessionHit]:
+    """Find session transcripts.
+
+    ``project`` is a case-insensitive fragment matched against the encoded
+    project directory names and wins over ``cwd``. With neither, every project
+    is scanned. A ``cwd`` that matches no project directory yields nothing --
+    it deliberately does *not* fall back to a global scan, so ``watch`` never
+    binds a transcript from an unrelated project.
+    """
     if not projects_dir.exists():
         return []
     hits: list[SessionHit] = []
     dirs = []
-    if cwd is not None:
+    if project:
+        needle = project.lower()
+        dirs = [p for p in projects_dir.iterdir() if p.is_dir() and needle in p.name.lower()]
+    elif cwd is not None:
         encoded = encode_cwd(cwd)
         exact = projects_dir / encoded
         if exact.exists():
             dirs = [exact]
         else:
             dirs = [p for p in projects_dir.iterdir() if p.is_dir() and encoded in p.name]
-    if not dirs:
+    if not dirs and project is None and cwd is None:
         dirs = [p for p in projects_dir.iterdir() if p.is_dir()]
     for folder in dirs:
         for path in folder.glob("*.jsonl"):

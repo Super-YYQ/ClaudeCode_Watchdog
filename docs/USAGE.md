@@ -2,17 +2,19 @@
 
 ClaudeCode Watchdog V0.1 的完整使用步骤。命令、输出、阈值均来自本机真实运行结果（示例里的用户名、provider 名、端口和无关项目名已换成占位符）。
 
-TL;DR：只想快速上手，看 [安装](#安装) + [第 3 步 replay](#3-离线复盘一个会话) 两节就够了。
+TL;DR：只想快速上手，看 [安装](#安装) + [最短路径](#最短路径) 两节就够了。
 
 ## 目录
 
 - [安装](#安装)
+- [最短路径](#最短路径)
 - [1. 体检：doctor](#1-体检doctor)
-- [2. 定位会话：status](#2-定位会话status)
-- [3. 离线复盘一个会话](#3-离线复盘一个会话)
-- [4. 实时守着会话](#4-实时守着会话)
-- [5. 读日志产物](#5-读日志产物)
-- [6. auto-resume 能做什么](#6-auto-resume-能做什么)
+- [2. 一句话看有没有出事：last](#2-一句话看有没有出事last)
+- [3. 定位会话：status](#3-定位会话status)
+- [4. 离线复盘一个会话](#4-离线复盘一个会话)
+- [5. 实时守着会话](#5-实时守着会话)
+- [6. 读日志产物](#6-读日志产物)
+- [7. auto-resume 能做什么](#7-auto-resume-能做什么)
 - [评分与分类含义](#评分与分类含义)
 - [配置文件](#配置文件)
 - [踩坑提示](#踩坑提示)
@@ -25,8 +27,10 @@ TL;DR：只想快速上手，看 [安装](#安装) + [第 3 步 replay](#3-离�
 ```powershell
 cd E:\github仓库\ClaudeCode_Watchdog
 python -m pip install -e ".[dev]"
-ccs-watchdog doctor
+ccw doctor
 ```
+
+安装包后会同时得到两个命令：`ccw`（短，推荐）和 `ccs-watchdog`（长，历史名字），二者指向同一个入口，完全等价。
 
 不想装包，全部命令都能免安装跑（PowerShell）：
 
@@ -36,24 +40,37 @@ $env:PYTHONPATH = "src"
 python -m ccs_watchdog.cli.main doctor
 ```
 
-下文统一用 `ccs-watchdog` 书写；免安装方式把 `ccs-watchdog` 换成 `python -m ccs_watchdog.cli.main` 即可。
+下文统一用 `ccw` 书写；免安装方式把 `ccw` 换成 `python -m ccs_watchdog.cli.main` 即可。
+
+## 最短路径
+
+日常只需要三条：
+
+```powershell
+ccw doctor   # 装完先跑一次，确认能找到 ~/.claude/projects
+ccw last     # 怀疑某个会话出事了？直接看结论（只打印 score>=60）
+ccw          # 干活时开着守护（另开一个终端，Ctrl+C 停止）
+```
+
+`ccw` 不带子命令时等价于 `ccw watch`；`ccw --once` 就是 `ccw watch --once`。`--config` 放在子命令前后都可以。
+
 
 ## 1. 体检：doctor
 
 确认能否找到 Claude Code 的 session 目录、ccSwitch 路由是否在跑。第一步永远先跑它。
 
 ```powershell
-ccs-watchdog doctor
+ccw doctor
 ```
 
-真实输出：
+输出示例（在 `E:\github仓库\ClaudeCode_Watchdog` 下执行，用户名 / provider / 端口已脱敏）：
 
 ```json
 {
   "claude_path": "C:\\Users\\<user>\\AppData\\Roaming\\npm\\claude.CMD",
   "claude_home": "C:\\Users\\<user>\\.claude",
   "projects_dir_exists": true,
-  "session_count": 88,
+  "session_count": 1,
   "newest_session": "4f52fcf7-7a1b-4502-90ff-9d31c343ec7d",
   "python_ok": true,
   "routing_enabled": true,
@@ -71,14 +88,53 @@ ccs-watchdog doctor
 |---|---|---|
 | `claude_path` | 找到的 `claude` 可执行文件 | `null` 说明 PATH 里没有 Claude Code |
 | `projects_dir_exists` | `~/.claude/projects` 是否存在 | `false` 则后面所有命令都拿不到会话 |
-| `session_count` | 可发现的会话总数 | `0` 说明还没跑过 Claude Code，或目录不对 |
+| `session_count` | **当前目录所属项目**可发现的会话数 | `0` 说明这个目录没跑过 Claude Code（换个目录跑，或 `ccw last --any-project`） |
 | `routing_enabled` / `listen` / `provider` | ccSwitch 本地路由状态 | 没装 ccSwitch 时为 `false` / `null`，属正常 |
 | `dry_run` | 当前是否只记录不动作 | 默认 `true`，V0.1 应该一直是 `true` |
 
-## 2. 定位会话：status
+## 2. 一句话看有没有出事：last
+
+最常用的入口。它替你做完"找会话 → 全量复盘 → 过滤噪音"三步，只留可疑事件。
 
 ```powershell
-ccs-watchdog status
+ccw last
+```
+
+输出示例（截断、已脱敏）：
+
+```text
+session 4f52fcf7-7a1b-4502-90ff-9d31c343ec7d  project=E--github---ClaudeCode-Watchdog  C:\Users\<user>\.claude\projects\...\4f52fcf7-....jsonl
+2026-09-11T01:54:57.855Z  SUSPECTED_SILENT_INTERRUPTION    score= 60 stop=None empty=0 model=<model>
+  evidence: assistant promised next action but emitted no tool_use; stop_reason absent (proxy/conversion likely)
+  text: I'll start by finding all references to the old name in the repo.
+  action: dry_run_prompt
+
+117 interesting events, 8 score>=60
+等价长命令：ccw replay "C:\Users\...\4f52fcf7-....jsonl"
+实时守护这一个会话：ccw watch --session 4f52fcf7-7a1b-4502-90ff-9d31c343ec7d
+```
+
+和 `replay` 的区别：
+
+| | `ccw last` | `ccw replay <path>` |
+|---|---|---|
+| 要不要自己找 jsonl 路径 | 不用 | 要 |
+| 打印范围 | `score >= suspicious_threshold`（默认 60） | 所有有意义的事件（含 30 分以上） |
+| 结尾 | 附赠可复制的长命令 | 只给统计 |
+
+改门槛：配置里写 `"suspicious_threshold": 80`，`ccw last` 就只报高危事件；此时它会打印 `(no event >= 80)` 而不是空白。
+
+跨项目 / 指定项目：
+
+```powershell
+ccw last --project watchdog     # 项目目录名片段（大小写不敏感）
+ccw last --any-project          # 当前目录没有会话时，全局找最近的一个
+```
+
+## 3. 定位会话：status
+
+```powershell
+ccw status
 ```
 
 ```json
@@ -94,20 +150,25 @@ ccs-watchdog status
 }
 ```
 
-把 `session_path` 记下来，第 3、4 步要用。
+把 `session_path` 记下来，第 4、5 步要用。`ccw last` 已经替你做了这一步。
 
-**注意**：会话是按**当前工作目录**推断的 —— 在 `E:\github仓库\ClaudeCode_Watchdog` 下执行，只会列出这个项目的会话。守别的目录里的会话，需要显式传 `--session`（见第 4 步）。
+```powershell
+ccw status --project watchdog    # 别的目录的项目也能查
+ccw status --any-project
+```
 
-## 3. 离线复盘一个会话
+**注意**：不带范围参数时，会话是按**当前工作目录**推断的 —— 在 `E:\github仓库\ClaudeCode_Watchdog` 下执行，只会列出这个项目的会话。
+
+## 4. 离线复盘一个会话
 
 对一整份 transcript 从头打一遍分。**不碰正在运行的会话，最安全，也最实用** —— 出问题时先用它搞清楚"到底算不算中断"。
 
 ```powershell
 # 用仓库自带的脱敏样本（推荐第一次跑这个）
-ccs-watchdog replay tests/fixtures/unfinished-text-then-done.jsonl
+ccw replay tests/fixtures/unfinished-text-then-done.jsonl
 
-# 复盘你自己的历史会话
-ccs-watchdog replay "C:\Users\<user>\.claude\projects\<project>\<session-id>.jsonl"
+# 复盘你自己的历史会话（路径直接抄 status 的 session_path，或看 ccw last 结尾打印的长命令）
+ccw replay "C:\Users\<user>\.claude\projects\<project>\<session-id>.jsonl"
 ```
 
 真实输出：
@@ -136,7 +197,7 @@ ccs-watchdog replay "C:\Users\<user>\.claude\projects\<project>\<session-id>.jso
 
 `--verbose` 参数存在但目前不改变输出（未接线）。
 
-## 4. 实时守着会话
+## 5. 实时守着会话
 
 V0.1 没有 daemon/service，**需要另开一个终端**，Claude Code 那个终端照常干活。
 
@@ -144,15 +205,25 @@ V0.1 没有 daemon/service，**需要另开一个终端**，Claude Code 那个�
 # 先 cd 到被守护的项目目录，才会自动挑对会话
 cd <你的项目目录>
 
-# 只关注启动之后新增的内容（默认行为，推荐日常用）
-ccs-watchdog watch
+# 只关注启动之后新增的内容（默认行为，推荐日常用）—— 裸命令即可
+ccw
 
-# 显式指定会话：session id 前缀 / 文件名 / 完整路径都接受 —— 跨项目时这是唯一办法
-ccs-watchdog watch --session 4f52fcf7
-ccs-watchdog watch --session "C:\Users\<user>\.claude\projects\<project>\<id>.jsonl"
+# 等价写法
+ccw watch
+
+# 显式指定会话：session id 前缀 / 文件名 / 完整路径都接受
+ccw watch --session 4f52fcf7
+ccw watch --session "C:\Users\<user>\.claude\projects\<project>\<id>.jsonl"
+
+# 别的项目的会话
+ccw watch --project watchdog
+ccw watch --any-project
 
 # 连已有历史一起扫，并且只扫一次就退出（验证配置很好用）
-ccs-watchdog watch --from-start --once
+ccw watch --from-start --once
+
+# 只关心更高分的事件，减少刷屏
+ccw watch --min-score 60
 ```
 
 命中时的输出示例（已脱敏）：
@@ -162,11 +233,19 @@ watching C:\Users\<user>\.claude\projects\E--github---ClaudeCode-Watchdog\4f52fc
 SUSPECTED_SILENT_INTERRUPTION score=60 assistant promised next action but emitted no tool_use; stop_reason absent (proxy/conversion likely)
 ```
 
-轮询间隔固定 0.5 秒；同一 `(分类, uuid, 分数)` 指纹只打印一次，不会刷屏。
+轮询间隔固定 0.5 秒；同一 `(分类, uuid, 分数)` 指纹只打印一次，不会刷屏。打印与写日志的门槛默认 30 分，用 `--min-score` 改。
 
-**停止**：`Ctrl+C`。`ccs-watchdog stop` 是占位命令，只打印 `no daemon pid file; stop the watch process`，没有 pid 文件管理。
+30 秒内有多个会话被写过时不会瞎猜，直接给你可复制的命令：
 
-## 5. 读日志产物
+```text
+AMBIGUOUS_SESSION; 30 秒内有多个会话被写过，选一个：
+  ccw watch --session 4f52fcf7-7a1b-4502-90ff-9d31c343ec7d   # E--github---ClaudeCode-Watchdog
+  ccw watch --session 3c7d9e21-5b4a-4f6c-9d8e-1a2b3c4d5e6f   # D--demo-Other-Tools
+```
+
+**停止**：`Ctrl+C`。`ccw stop` 是占位命令，只打印 `no daemon pid file; stop the watch process`，没有 pid 文件管理。
+
+## 6. 读日志产物
 
 默认落在**当前工作目录**的 `.ccs-watchdog/`（已在 `.gitignore` 里）：
 
@@ -179,14 +258,14 @@ SUSPECTED_SILENT_INTERRUPTION score=60 assistant promised next action but emitte
 Get-Content .\.ccs-watchdog\watchdog.log -Tail 20
 ```
 
-换位置：`ccs-watchdog watch --log-dir D:\logs\ccwd`。
+换位置：`ccw watch --log-dir D:\logs\ccwd`，或配置里写 `"log_dir": "D:/logs/ccwd"`（命令行参数优先）。
 
 日志里的文本摘要会先过 `redact()`，API Key / Token 之类不落盘。
 
-## 6. auto-resume 能做什么
+## 7. auto-resume 能做什么
 
 ```powershell
-ccs-watchdog watch --auto-resume
+ccw watch --auto-resume
 ```
 
 **它不会自动往终端打字。** V0.1 里 `--auto-resume` 只把"该发给 Claude 的恢复提示词"打印出来，仍需你复制粘贴或手动续。它同时把 `dry_run` 置为 `false`。
@@ -211,12 +290,12 @@ manual_review: not auto-resuming
 
 分数（`scoring/score.py`）：
 
-| 分数 | 含义 |
-|---|---|
-| `>= 80` | 高置信中断，`--auto-resume` 的门槛（可用 `threshold` 配置） |
-| `60–79` | 可疑，`replay` 结尾统计里的 "score>=60"（写死在 `cli/main.py`） |
-| `>= 30` | `watch` 会打印并记日志的门槛（写死在 `cli/main.py`） |
-| `< 30` | 忽略 |
+| 分数 | 含义 | 可调的地方 |
+|---|---|---|
+| `>= 80` | 高置信中断，`--auto-resume` 的门槛 | 配置 `threshold` |
+| `60–79` | 可疑，`ccw last` 默认只展示这一档及以上 | 配置 `suspicious_threshold` |
+| `>= 30` | `watch` / `replay` 会打印并记日志的门槛 | `watch --min-score <n>` |
+| `< 30` | 忽略 | |
 
 分类（11 种）：`NORMAL` / `NORMAL_END` / `TOOL_RUNNING` / `WAITING_USER` / `API_INTERRUPTED` / `EMPTY_RESPONSE` / `REPEATED_EMPTY_RESPONSE` / `SUSPECTED_SILENT_INTERRUPTION` / `SIDE_EFFECT_UNKNOWN` / `ROUTE_SWITCH_SUSPECTED` / `UNKNOWN`。
 
@@ -227,47 +306,47 @@ manual_review: not auto-resuming
 ## 配置文件
 
 ```powershell
-ccs-watchdog --config my.json doctor
+ccw --config my.json doctor
+ccw doctor --config my.json     # 也认，全局参数放前放后都行
 ```
 
-`--config` 是**全局参数，必须放在子命令之前**（`ccs-watchdog doctor --config my.json` 会报 `unrecognized arguments`）。
-
-JSON 格式，可写字段（`config/defaults.py`）。**V0.1 有若干声明了但未接线的字段**，下表如实标注：
+JSON 格式，可写字段见 `config/defaults.py`（拼错键名或写只读 property 会打 `UserWarning` 并跳过，不再崩）。**仍有若干声明了但未接线的字段**，下表如实标注：
 
 | 字段 | 默认 | 作用 |
 |---|---|---|
 | `dry_run` | `true` | 只记录不动作 |
 | `auto_resume` | `false` | 允许打印恢复提示词 |
-| `threshold` | `80` | auto-resume 触发的分数门槛 —— **唯一真正生效的阈值** |
+| `threshold` | `80` | auto-resume 触发的分数门槛 |
+| `suspicious_threshold` | `60` | `ccw last` 的展示门槛 |
 | `max_auto_resumes` | `3` | 熔断器上限 |
-| `claude_home` | `~/.claude` | 会话发现根目录（路径类，见踩坑提示） |
+| `log_dir` | `null` | 日志目录；`--log-dir` 优先 |
+| `claude_home` | `~/.claude` | 会话发现根目录（路径类，JSON 里写字符串即可，加载时转 `Path`） |
 | `ccswitch_home` | `~/.cc-switch` | ccSwitch 状态目录（路径类） |
-| `suspicious_threshold` | `60` | ⚠️ 未接线，代码里没有引用 |
 | `cooldown_seconds` | `10` | ⚠️ 未接线 |
 | `idle_grace_seconds` | `2.0` | ⚠️ 未接线 |
 | `empty_consecutive_threshold` | `2` | ⚠️ 未接线，`scoring/score.py` 里写死 `>= 2` |
 | `redact_secrets` | `true` | ⚠️ 未接线，日志摘要无条件过 redact |
-| `log_dir` | `null` | ⚠️ 未接线，只有 `--log-dir` 命令行参数生效 |
-
 
 ## 踩坑提示
 
 | 现象 | 原因 / 正确做法 |
 |---|---|
-| `unrecognized arguments: --config ...` | `--config` 必须放在子命令**前面** |
-| 配置里写 `claude_home` 后路径行为异常 | JSON 值以 `str` 覆盖 dataclass 的 `Path` 字段，后续 `/` 拼接会 `TypeError`。数字字段安全，**路径类字段别写在配置文件里** |
-| 配置里有 `projects_dir` 或拼错的键 → `AttributeError` 崩 | `projects_dir` 是 property 无 setter；未知键 `setattr` 抛错。只写上面表格里的普通字段 |
-| `AMBIGUOUS_SESSION; pass --session with one of:` | 30 秒内有多个会话被写过，按打印出的候选列表选一个加 `--session` |
-| 守着守着发现不是目标会话 | 会话按 cwd 推断。跨项目必须 `--session <完整路径>` |
-| 改了 `threshold` 但 replay 输出没变 | `threshold` 只管 auto-resume；日志/打印门槛是写死的 `score >= 30` |
+| `UserWarning: 忽略未知配置项 ...` | 键名拼错，或写了只读 property（如 `projects_dir`）。警告里会列出全部可用键 |
+| `AMBIGUOUS_SESSION; 30 秒内有多个会话被写过` | 直接复制它打印出来的 `ccw watch --session <id>` 那条 |
+| 守着守着发现不是目标会话 | 会话按 cwd 推断。跨项目用 `--session <id>` / `--project <片段>` / `--any-project` |
+| `no session found（当前目录没有会话…）` | 这个目录没跑过 Claude Code。换目录，或加 `--any-project` |
+| `ccw` 卡住没输出 | 正常 —— 守护模式在轮询，只打印 `score >= 30` 的事件。`Ctrl+C` 退出，或先 `ccw --from-start --once` 验证 |
+| 改了 `threshold` 但 `watch` 输出没变 | `threshold` 只管 auto-resume；打印/写日志门槛是 `--min-score`（默认 30） |
 | `No module named ccs_watchdog` | 没 `pip install -e`，也没设 `PYTHONPATH=src` |
+| 只有 `ccs-watchdog` 没有 `ccw` | 装的是旧版本，重装一次：`python -m pip install -e ".[dev]"` |
 
 ## 故障排查
 
-- **一个会话都找不到** → `doctor` 看 `projects_dir_exists`。Claude Code 的 transcript 在 `~/.claude/projects/<cwd 编码>/<session-id>.jsonl`，目录名是把 cwd 里的 `:` `\` `/` 换成 `-`（`discovery/sessions.py:encode_cwd`）。
+- **一个会话都找不到** → `ccw doctor` 看 `projects_dir_exists`。Claude Code 的 transcript 在 `~/.claude/projects/<cwd 编码>/<session-id>.jsonl`；目录名是把 cwd 里**所有**非 `[A-Za-z0-9-]` 字符换成 `-`（中文、空格、下划线都算），见 `discovery/sessions.py:encode_cwd`。
 - **`routing_enabled: false` 但装了 ccSwitch** → 检查 `~/.cc-switch` 是否存在、版本是否被 `provider/ccswitch.py` 支持。
-- **误判为中断** → 先 `replay` 该会话看 `evidence`。`WAITING_USER`（模型在等你回答）和 `TOOL_RUNNING` 不该算中断；如果算错了，属于 `scoring/score.py` 的判定问题，欢迎带 fixture 报 issue。
-- **测试** → `python -m pytest -q`（当前 14 passed）。
+- **误判为中断** → 先 `ccw last` / `ccw replay` 看 `evidence`。`WAITING_USER`（模型在等你回答）和 `TOOL_RUNNING` 不该算中断；如果算错了，属于 `scoring/score.py` 的判定问题，欢迎带 fixture 报 issue。
+- **测试** → `python -m pytest -q`（当前 46 passed）。
+
 
 ## 安全边界
 

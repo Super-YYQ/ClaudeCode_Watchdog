@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+import warnings
+from dataclasses import dataclass, fields, field
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -25,11 +27,25 @@ class WatchdogConfig:
         return self.claude_home / "projects"
 
 
+PATH_FIELDS = frozenset({"claude_home", "ccswitch_home", "log_dir"})
+FIELD_NAMES = tuple(f.name for f in fields(WatchdogConfig))
+
+
 def load_config(path: Path | None = None) -> WatchdogConfig:
     cfg = WatchdogConfig()
-    if path and path.exists():
-        data = json.loads(path.read_text(encoding="utf-8"))
-        for key, value in data.items():
-            if hasattr(cfg, key):
-                setattr(cfg, key, value)
+    if not path or not path.exists():
+        return cfg
+    data = json.loads(path.read_text(encoding="utf-8"))
+    known = set(FIELD_NAMES)
+    for key, value in data.items():
+        if key not in known:
+            warnings.warn(f"忽略未知配置项 {key!r}（可用项：{', '.join(FIELD_NAMES)}）", UserWarning, stacklevel=2)
+            continue
+        setattr(cfg, key, _coerce(key, value))
     return cfg
+
+
+def _coerce(key: str, value: Any) -> Any:
+    if key in PATH_FIELDS:
+        return Path(value) if value is not None else None
+    return value
